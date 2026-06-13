@@ -1,0 +1,275 @@
+#===============================================================================
+#
+# SPI Libs
+#
+# GENERAL DESCRIPTION
+#    Public build script for SPI BUS driver.
+#
+# Copyright (c) Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Qualcomm Technologies, Inc. Confidential and Proprietary.
+#
+#-------------------------------------------------------------------------------
+#
+#  $Header: //components/rel/core.qdsp6/8.2.3/buses/spi/build/spi.scons#1 $
+#  $DateTime: 2025/11/18 04:23:34 $
+#  $Author: pwbldsvc $
+#  $Change: 68755370 $
+#
+#===============================================================================
+#                      EDIT HISTORY FOR FILE
+#
+#  This section contains comments describing changes made to the module.
+#  Notice that changes are listed in reverse chronological order.
+#  
+# when       who     what, where, why
+# --------   ---     ---------------------------------------------------------
+# 07/12/24   gkr     Added Generic stub support
+# 07/12/24   gkr     Enabled Stub support for SPI
+# 06/05/24   KSN     Removed spport for I2C_ENABLE_ISLAND flag
+#===============================================================================
+
+
+import os
+
+Import('env')
+env = env.Clone()
+
+#-------------------------------------------------------------------------------
+# Stub out SPI Driver during PW enablement to avoid compilation error 
+# until porting to the respective chipset is done
+#-------------------------------------------------------------------------------
+
+if os.path.isdir(env.subst("${BUILD_ROOT}/core/settings/buses/qup_common/hal/${CHIPSET}")):
+    ENABLE_SPI_STUBS = False
+else:
+    ENABLE_SPI_STUBS = True
+    env.PrintInfo('SPI Driver Stubbed for ${CHIPSET}')
+
+#------------------------------------------------------------------------------
+# Add API folders
+#------------------------------------------------------------------------------
+
+
+SPI_BUILD_ROOT = os.getcwd();
+
+build_tags = env.get('BUILD_TAGS')
+
+#-----------------------------------------------------------------------------
+# Manage Variables 
+#-----------------------------------------------------------------------------
+IS_ADSP_SLPI_COMBINED=False
+COMPILE_IN_ISLAND=False
+
+if env.IsTargetEnable(['CORE_SLPI_ADSP_ROOT', 'CORE_SSC_ADSP_USER']):
+   IS_ADSP_SLPI_COMBINED=True
+
+if env.IsTargetEnable(['CORE_SLPI_ADSP_ROOT', 'CORE_SSC_ADSP_USER', 'CORE_SLPI_ROOT', 'CORE_SLPI_USER']) and 'USES_DISABLE_SPI_ISLAND' not in env:
+    COMPILE_IN_ISLAND=True
+
+# Always build SPI into Root Process for SLPI/ADSP.  This will also build into ADSP when Sensors is present.
+SPI_DRV_IMAGES = ['CORE_SLPI_ROOT', 'CORE_ADSP_ROOT','CORE_SLPI_ADSP_ROOT']
+# Always build SPI into all User Process on SLPI.
+SPI_USR_IMAGES = ['CORE_SLPI_USER','CORE_OIS_ADSP_USER']
+
+SPI_SSC_TEST_IMAGES = ['CORE_SLPI_USER']
+
+SPI_ADSP_TEST_IMAGES = []
+
+if ENABLE_SPI_STUBS is False:
+  env.PublishPrivateApi('BUSES', [
+   "${BUILD_ROOT}/core/buses/spi/src",
+   "${BUILD_ROOT}/core/buses/spi/inc",
+   "${BUILD_ROOT}/core/buses/spi/config",
+   os.path.join('${BUILD_ROOT}/core/buses/spi/test', env['MSM_ID']),
+  ])
+else:
+  env.PublishPrivateApi('BUSES', [
+   "${BUILD_ROOT}/core/buses/spi/src",
+   "${BUILD_ROOT}/core/buses/spi/inc",
+   "${BUILD_ROOT}/core/buses/spi/config",
+   "${BUILD_ROOT}/core/buses/spi/test/stub"
+  ])
+
+
+
+if 'USES_SPI_QURT_CB_FW' in env:
+    env.Append(CCFLAGS = ' -DSPI_ENABLE_QURT_CB_FW')
+
+#-----------------------------------------------------------------------------
+# Define paths
+#-----------------------------------------------------------------------------
+
+SRCPATH = "../"
+env.VariantDir('${BUILDPATH}', SRCPATH, duplicate=0)
+
+#-----------------------------------------------------------------------------
+# Define any features or compiler flags
+#-----------------------------------------------------------------------------
+if 'USES_TRANSFER_OPTIMIZATION_IN_ISLAND' in env:
+   env.Append(CCFLAGS = ' -DENABLE_XFER_OPTIMIZE_IN_ISLAND')
+#-------------------------------------------------------------------------------
+# Internal depends within CoreBSP
+#-------------------------------------------------------------------------------
+
+CBSP_API = [
+   'BUSES',
+   'SERVICES',
+   'SYSTEMDRIVERS',
+   'BUSYWAIT',
+   'HWENGINES',
+   'KERNEL',
+   'PRODUCTS',
+   'SERVICES',
+   'POWER',
+   'DEBUGTRACE',
+   'DEBUGTOOLS',
+   'QUP_COMMON',
+   'QUP_COMMON_HAL',
+   'DAL',
+]
+
+env.RequirePublicApi(CBSP_API)
+env.RequireRestrictedApi(CBSP_API)
+
+#-------------------------------------------------------------------------------
+# Define sources
+#-------------------------------------------------------------------------------
+if ENABLE_SPI_STUBS is False:
+    SPI_DRV_SOURCES = [
+       '${BUILDPATH}/src/spi_api.c',
+       '${BUILDPATH}/src/spi_gpi.c',
+       '${BUILDPATH}/src/spi_qdi_root.c',
+    ]
+    SPI_USR_SOURCES = [
+       '${BUILDPATH}/src/spi_qdi_user.c',
+    ]
+
+    SPI_DRV_ISLAND_SOURCES = [
+       '${BUILDPATH}/src/spi_api_island.c',
+       '${BUILDPATH}/src/spi_gpi_island.c',
+       '${BUILDPATH}/src/spi_qdi_root_island.c',
+       '${BUILDPATH}/src/spi_plat_island.c',
+       '${BUILDPATH}/src/spi_drv_island.c',
+    ]
+else:
+    SPI_DRV_SOURCES = [
+        '${BUILDPATH}/stub/spi_stub.c',
+    ]
+    SPI_USR_SOURCES = [
+        '${BUILDPATH}/stub/spi_stub.c',
+    ]
+    SPI_DRV_ISLAND_SOURCES = []
+
+SPI_SSC_TEST_SOURCES = []
+SPI_ADSP_TEST_SOURCES = []
+
+#------------------------------------------------------------------------------
+# Debug logging options
+#------------------------------------------------------------------------------ 
+
+env.Append(CCFLAGS = ' -DQUP_ENABLE_ULOG')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_DATA')
+env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_ERROR')
+env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_INFO')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_REGS')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_PERF')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_VERBOSE')
+
+if 'USES_QUP_KPI_PROFILING' in env:
+    env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_PERF')
+    env.Append(CCFLAGS = ' -DQUP_KPI_PROFILING')
+
+#------------------------------------------------------------------------------
+# TEST sources
+#------------------------------------------------------------------------------ 
+
+if 'BUILD_BAREBONE' in env and ENABLE_SPI_STUBS is False: 
+  SPI_SSC_TEST_SOURCES += [
+        '${BUILDPATH}/test/spi_test.c',
+        '${BUILDPATH}/test/spi_ssc_test.c',
+        ]
+  SPI_USR_IMAGES += ['CHARGER_USER']
+  SPI_ADSP_TEST_IMAGES += ['CHARGER_USER']
+  SPI_ADSP_TEST_SOURCES += [
+        '${BUILDPATH}/test/spi_test.c',
+        '${BUILDPATH}/test/spi_adsp_test.c',
+        ]
+
+#-------------------------------------------------------------------------------
+# Add Libraries to image
+#-------------------------------------------------------------------------------
+SPIDriverLib = env.AddLibrary( SPI_DRV_IMAGES, '${BUILDPATH}/SpiDriver', SPI_DRV_SOURCES )
+SPIUserLib = env.AddLibrary( SPI_USR_IMAGES, '${BUILDPATH}/SpiClient', SPI_USR_SOURCES )
+SPIDriverIslandLib = env.AddLibrary( SPI_DRV_IMAGES, '${BUILDPATH}/SpiDriverIsland', SPI_DRV_ISLAND_SOURCES )
+SPISscTestLib = env.AddLibrary( SPI_SSC_TEST_IMAGES, '${BUILDPATH}/SPISscTest', SPI_SSC_TEST_SOURCES )
+SPIAdspTestLib = env.AddLibrary( SPI_ADSP_TEST_IMAGES, '${BUILDPATH}/SPIAdspTest', SPI_ADSP_TEST_SOURCES )
+
+if COMPILE_IN_ISLAND is True:
+   SPI_ROOT_ISLAND_WHITELIST = ['spi_qdi_root_invoke_non_island',
+                                'qup_get_se_clock_plan_copy']
+   if 'USES_MEMSEG' in env:
+      env.TagLibraryForMemorySegment(SPI_DRV_IMAGES, 'common', SPIDriverIslandLib)
+      env.TagLibraryForMemorySegment(SPI_USR_IMAGES, 'common', SPIUserLib)
+      ex_modes = env.GetMemorySegmentExecModes()
+      env.AddSymbolToMemorySegmentWhitelist(SPI_DRV_IMAGES, ex_modes, SPIDriverIslandLib, SPI_ROOT_ISLAND_WHITELIST)
+      env.AddSymbolToMemorySegmentWhitelist(SPI_USR_IMAGES, ex_modes, SPIUserLib, 'qurt_thread_create')
+   elif 'USES_ISLAND' in env:
+      env.AddIslandLibrary(SPI_DRV_IMAGES, SPIDriverIslandLib)
+      env.AddIslandLibrary(SPI_USR_IMAGES, SPIUserLib)
+      env.AddSymbolToIslandWhitelist(SPI_DRV_IMAGES, SPIDriverIslandLib, SPI_ROOT_ISLAND_WHITELIST)
+      env.AddSymbolToIslandWhitelist(SPI_USR_IMAGES, SPIUserLib, 'qurt_thread_create')
+
+if 'TOUCH_USES_PRAM' in env:
+   env.Append(CFLAGS = '-DTOUCH_USES_PRAM_BUFF')
+
+if 'USES_POLL_MODE_BUS_DRIVERS' in env:
+   env.Append(CFLAGS = '-DPOLL_MODE_BUS_DRIVERS')
+   
+if 'USES_BUS_PRESIL_CONFIG' in env:
+    env.Append(CFLAGS = '-DBUS_PRESIL_CONFIG')
+elif 'USES_BUS_CUSTOMER_CONFIG' in env:
+    env.Append(CFLAGS = '-DBUS_CUSTOMER_CONFIG')
+
+#-------------------------------------------------------------------------------
+# Register initialization function and dependencies.
+#-------------------------------------------------------------------------------
+
+if 'USES_RCINIT' in env and ENABLE_SPI_STUBS is False:
+   if env.has_key('BUILD_BAREBONE'):
+     env.AddRCInitFunc(
+          SPI_SSC_TEST_IMAGES,
+          {
+            'sequence_group'             : 'RCINIT_GROUP_7',   # required
+            'init_name'                  : 'spi_thread_test_init',    # required
+            'init_function'              : 'spi_thread_test_init',    # required
+            'dependencies'               : ['spi_plat_init']
+          })
+
+   if env.has_key('BUILD_BAREBONE'):
+     env.AddRCInitFunc(
+          SPI_ADSP_TEST_IMAGES,
+          {
+            'sequence_group'             : 'RCINIT_GROUP_7',   # required
+            'init_name'                  : 'spi_thread_test_init',    # required
+            'init_function'              : 'spi_thread_test_init',    # required
+            'dependencies'               : ['spi_plat_init']
+          })
+
+   env.AddRCInitFunc(
+      SPI_DRV_IMAGES,
+      {
+         'sequence_group'             : 'RCINIT_GROUP_1',    # required
+         'init_name'                  : 'spi_qdi_root_init', # required
+         'init_function'              : 'spi_qdi_root_init', # required
+         'dependencies'               : ['spi_plat_init']
+      })
+
+   env.AddRCInitFunc(
+      SPI_USR_IMAGES,
+      {
+         'sequence_group'             : 'RCINIT_GROUP_1',    # required
+         'init_name'                  : 'spi_qdi_user_init', # required
+         'init_function'              : 'spi_qdi_user_init', # required
+      })
+

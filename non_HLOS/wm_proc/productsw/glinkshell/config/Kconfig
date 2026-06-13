@@ -1,0 +1,58 @@
+# ------------------------------------------------------------------------------
+#  Copyright (c) Qualcomm Technologies, Inc.
+#  All rights reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+# ------------------------------------------------------------------------------
+config GLINK_SHELL
+	bool "Make use of a glink backend for a phantom shell"
+	depends on SHELL
+	help
+		=== GLINK Backend for QCLI-like operation with AM55 as Master ===
+
+config GLINK_SHELL_MSGQ_ELEM_COUNT
+	depends on GLINK_SHELL
+	int "Number of elements within message queue"
+	default 200
+	help
+		=== GLINK msgq element count ===
+
+config GLINK_SHELL_PROMPT
+	depends on GLINK_SHELL
+	string "PROMPT FOR THE GLINK SHELL: ----CAN'T BE EMPTYSTR!!!----"
+	default ">"
+	help
+		=== PROMPT FOR THE GLINK SHELL ----CAN'T BE EMPTYSTR!!!----  ===
+
+config GLINK_SHELL_PASSTHROUGH
+	depends on GLINK_SHELL
+	bool "Enable the q6/wm passthroughs"
+	help
+		=== ENABLE the q6/wm passthrough ===
+
+config GLINK_SHELL_THREAD_PRIORITY
+	depends on GLINK_SHELL
+	int "Priority to bring up glink thread"
+	default 20
+	help
+		=== Priority level for glink thread ===
+
+config GLINK_SHELL_THREAD_STACK_SZ
+	depends on GLINK_SHELL
+	int "Stack size alloted to glink thread"
+	default 2048
+	help
+		=== Glink thread stack size ===
+
+config GLINK_SHELL_LOG_LEVEL
+	depends on GLINK_SHELL
+	int "Log level for glink shell log level"
+	default 2
+	help
+		=== glinkshell log level ===
+
+config GLINK_SHELL_TRANSPORT_BUF_SZ
+	depends on GLINK_SHELL
+	int "Size of glink transport for WM shell"
+	default 256
+	help
+		=== glinkshell TX/RX buf size ===

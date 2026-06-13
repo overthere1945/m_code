@@ -1,0 +1,34 @@
+#===============================================================================
+#
+# QUP COMMON INC PATHs
+#
+# GENERAL DESCRIPTION
+#    QUP COMMON PATH
+#
+# Copyright (c) 2020 by Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# QUALCOMM Technologies Inc.
+#
+#-------------------------------------------------------------------------------
+#
+#                      EDIT HISTORY FOR FILE
+#
+#  This section contains comments describing changes made to the module.
+#  Notice that changes are listed in reverse chronological order.
+#
+# when       who     what, where, why
+# --------   ---     ---------------------------------------------------------
+# 03/17/20   JC      Initial revision.
+#
+#===============================================================================
+Import('env')
+
+#-------------------------------------------------------------------------------
+# Publish Public APIs
+# These are accessible internal or external to CoreBSP
+#-------------------------------------------------------------------------------
+env.PublishRestrictedApi('QUP_COMMON', [
+   "${INC_ROOT}/core/buses/qup_common/inc",
+   "${CORE_API_COMMON}/boot/DTBExtnLib",
+])
+

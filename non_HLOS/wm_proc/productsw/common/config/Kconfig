@@ -1,0 +1,100 @@
+# ------------------------------------------------------------------------------
+#  Copyright (c) Qualcomm Technologies, Inc.
+#  All rights reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+# ------------------------------------------------------------------------------
+
+config PDTSW_COMMON_MODULES_ENABLE
+    bool "Enable common modules"
+    default n
+    help
+        Enables common modules for productsw services.
+
+config PDTSW_COMMON_STATE_MACHINE_ENABLE
+    bool "Enable pdtsw state machine framework"
+    depends on PDTSW_COMMON_MODULES_ENABLE
+    default n
+    help
+        Enables the state machine framework for productsw services.
+
+config PDTSW_COMMON_UTILS_ENABLE
+    bool "Enable pdtsw common utility module"
+    depends on QC_SHELL_BACKEND_SERIAL
+    default n
+    help
+        Enables productsw common utility module
+
+config PDTSW_COMMON_UTILS_DBG_LOGGING
+    bool "Enable logging for pdtsw common utility module"
+    default n
+    help
+        Enables logging for productsw common utility module
+
+config PDTSW_GLINK_STUB_ENABLE
+    bool "Enable glink stubs"
+    depends on PDTSW_COMMON_MODULES_ENABLE
+    default n
+    help
+        This stubs the glink core to all the productsw components.
+
+config PDTSW_COMMON_HEAP_MGR_ENABLE
+    bool "Enable heap manager"
+    depends on PDTSW_COMMON_MODULES_ENABLE
+    default n
+    help
+        Enables heap manager for productsw services.
+
+config PDTSW_COMMON_GLINK_HEAP_SIZE
+    int "Product software glink heap size"
+    depends on PDTSW_COMMON_HEAP_MGR_ENABLE
+    range 1024 4096
+    default 2048
+    help
+        This will be used by the product software components for glink transactions.
+
+config PDTSW_COMMON_HEAP_SIZE
+    int "Product software common heap size"
+    depends on PDTSW_COMMON_HEAP_MGR_ENABLE
+    range 1024 4096
+    default 4096
+    help
+        This will be used by the product software components
+
+config PDTSW_COMMON_WORKER_THREAD_ENABLE
+    bool "Enable productsw default worker thread"
+    depends on PDTSW_COMMON_MODULES_ENABLE
+    default n
+    help
+        Enables default workerthread to use across productsw services
+
+config PDTSW_DEFAULT_WORKQ_STACKSIZE
+    int "Product software default workq stack size"
+    range 1024 2048
+    default 2048
+    help
+        This will be used by the default workqueue thread to allocate stack size
+        Memory will be allocated from common heap memory pool.
+
+config PDTSW_DEFAULT_WORKQ_THREAD_PRIORITY
+    int "Product software default workq priority"
+    depends on PDTSW_COMMON_WORKER_THREAD_ENABLE
+    range 1 50
+    default 21
+    help
+        This will be used by the default workqueue thread to allocate priority
+
+config QC_PDTSW_GC_WORKQ_STACKSIZE
+    int "Product software garbage collector workq stack size"
+    range 768 2048
+    default 1024
+    help
+        This will be used by the garbage collector workqueue thread to allocate stack size
+        Memory will be allocated from common heap memory pool.
+
+config QC_PDTSW_GC_WORKQ_THREAD_PRIORITY
+    int "Product software garbage collector workq priority"
+    range 1 50
+    default 23
+    help
+        This will be used by the garbage collector workqueue thread to allocate priority
+        The priority should be lower than all other product software threads

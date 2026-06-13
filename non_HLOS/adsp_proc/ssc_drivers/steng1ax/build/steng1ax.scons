@@ -1,0 +1,59 @@
+#===============================================================================
+#
+# STENG1AX sensor implementation
+#
+# GENERAL DESCRIPTION
+#    build script
+#
+# Copyright (c) 2017-2021 by Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+#===============================================================================
+Import('env')
+import inspect
+
+if 'USES_SSC_STATIC_LIB_BUILDER' in env:
+  if 'SNS_DISABLE_REGISTRY' in env:
+    env.Append( CPPDEFINES = ['STENG1AX_REGISTRY_DISABLED=1'] )
+  else:
+    env.Append( CPPDEFINES = ['STENG1AX_REGISTRY_DISABLED=0'] )
+
+  num_copy = 1
+
+  pb_api = []
+  steng1ax_island_enable = True if 'SNS_ISLAND_INCLUDE_STENG1AX' in env else False
+  is_binary_lib = False
+  if 'SNS_DYNLIB_STENG1AX' in env:
+    env.Append(CPPDEFINES = ['SNS_DYNLIB_STENG1AX'])
+    is_binary_lib = "Shared_src"
+    pb_api = [
+      'sns_async_com_port',
+      'sns_dae',
+      'sns_motion_detect',
+      'sns_physical_sensor_test',
+      'sns_registry',
+      'sns_suid',
+      'sns_interrupt',
+      'sns_std',
+      'sns_std_type',
+      'sns_std_sensor',
+      'sns_electro_neuro_graph'
+      'sns_timer',
+      'sns_cal',
+  ]
+
+  env.Append( CPPDEFINES = ['STENG1AX_DAE_ERROR_HANDLING_ENABLED'])
+  env.AddSSCSU(inspect.getfile(inspect.currentframe()),
+               register_func_name = "sns_register_steng1ax",
+               cflags = ['-Wno-sign-compare', '-Wno-enum-compare'],
+               binary_lib = is_binary_lib,
+               add_island_files = steng1ax_island_enable,
+               pb_apis = pb_api,
+               registration_cnt = num_copy)
+
+#------------------------------------------------------------------------------
+# Scan subdirectories to find more /build folders
+#------------------------------------------------------------------------------
+env.LoadSoftwareUnits()
+

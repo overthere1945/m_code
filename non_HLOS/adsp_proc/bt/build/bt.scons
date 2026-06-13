@@ -1,0 +1,182 @@
+#===============================================================================
+#
+# BT AU
+#
+# GENERAL DESCRIPTION
+#    build script
+#
+# Copyright (c) 2026 by Qualcomm Technologies, Inc. and/or its subsidiaries.
+# All rights reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+#===============================================================================
+Import('env')
+import json
+import subprocess
+import os, inspect
+import platform, re
+import logging
+
+format_str = '%(filename)s(line %(lineno)s)\t%(levelname)s -- %(message)s'
+logging.basicConfig(level=logging.ERROR, format=format_str)
+logger = logging.getLogger(__name__)
+# Set logging level back to ERROR for normal operation
+logger.setLevel(logging.ERROR)
+
+# SRCPATH defines the root of the source tree for this component.
+# Get the BUILD_ROOT from the SCons environment and resolve it to a concrete path.
+actual_build_root_path = env.subst('${BUILD_ROOT}')
+
+# Construct SRCPATH using os.path.join with the resolved BUILD_ROOT.
+SRCPATH = os.path.join(actual_build_root_path, 'bt')
+
+# IMPORTANT: Add the constructed SRCPATH to the SCons environment
+# This makes it available for subsequent env.subst('${SRCPATH}/...') calls.
+env['SRCPATH'] = SRCPATH
+
+# env.VariantDir('${BUILDPATH}', SRCPATH, duplicate=0) maps the source tree
+# (SRCPATH) to the build tree (BUILDPATH) for SCons to place compiled objects.
+# ${BUILDPATH} is where the *output* files will go, not necessarily where
+# the *source* files are found by Python's os.walk.
+env.VariantDir('${BUILDPATH}', SRCPATH, duplicate=0)
+
+# Enabled with test implementation
+# Always use amss heap instead of heap from BT_ISLAND_LPASS_TCM_POOL 
+# env.Append(CPPFLAGS=['-DENABLE_BT_PAL_AMSS_HEAP'])
+
+#--------------------------------------------------------------------------------
+# Necessary Public API's
+#--------------------------------------------------------------------------------
+CORE_PUBLIC_APIS = [
+    'DEBUGTOOLS',
+    'DAL',
+    'MPROC',
+    'DIAG',
+    'STORAGE',
+    'SERVICES',
+    'SYSTEMDRIVERS',
+    'KERNEL',
+    'POWER'
+]
+
+env.RequireRestrictedApi(CORE_PUBLIC_APIS)
+env.RequirePublicApi(CORE_PUBLIC_APIS, area='core')
+# env.RequirePublicApi(['TEST','COMMON','WLS'], area='QMIMSGS')
+
+# BT PAL and microstack related Includes
+env.RequirePublicApi(['BT_INCLUDES'])
+env.RequirePublicApi(['MICRO_STACK_API'])
+
+#--------------------------------------------------------------------------------
+# Utility python API's
+#--------------------------------------------------------------------------------
+
+# Function to recursively find all .c files
+# It expects a SCons-style path string (e.g., '${SRCPATH}/glink')
+# and returns variant-mapped SCons File Nodes (e.g., '${BUILDPATH}/glink/file.c').
+def find_source_files(env_obj, directory_scons_path, exclude_scons_paths=None):
+      # Resolve the SCons path string to an actual filesystem path for walking the file system
+      actual_directory = env_obj.subst(directory_scons_path)
+
+      c_files = []
+      if not os.path.isdir(actual_directory):
+          logger.warning(f"Directory not found: {actual_directory}. No source files will be added from this path.")
+          return []
+
+      # Resolve all exclusion paths to their absolute filesystem paths once
+      resolved_exclude_paths = set()
+      if exclude_scons_paths:
+          for scons_path in exclude_scons_paths:
+              resolved_exclude_paths.add(env_obj.subst(scons_path))
+
+      for root, _, files in os.walk(actual_directory):
+            for file in files:
+                  if file.endswith('.c'):
+                        full_file_path = os.path.join(root, file)
+
+                        # Check if this full absolute file path is in the resolved exclusion set
+                        if full_file_path in resolved_exclude_paths:
+                              logger.info(f"Excluding file: {full_file_path} (matched in exclusion list)")
+                              continue
+                        
+                        # Get the path relative to the base SRCPATH
+                        base_src_path = env_obj.subst('${SRCPATH}') # Re-subst for robustness if env changes
+                        relative_path_from_src_root = os.path.relpath(full_file_path, base_src_path)
+                        
+                        # Construct the SCons-style path that uses BUILDPATH
+                        variant_mapped_path_str = os.path.join('${BUILDPATH}', relative_path_from_src_root)
+                        
+                        # Create an SCons File node from this variant-mapped path string
+                        file_node = env_obj.File(variant_mapped_path_str)
+                        c_files.append(file_node)
+      return c_files
+
+def find_qcli(env_obj):
+    #return env_obj.subst('${SRCPATH}/qcli')
+    return False
+
+#-------------------------------------------------------------------------------
+# Sources, libraries
+#-------------------------------------------------------------------------------
+BT_OFFLOAD_SRC = []
+
+# Define EXCLUDE_FILES using full SCons paths.
+# These paths will be resolved to absolute filesystem paths inside find_source_files.
+EXCLUDE_FILES = [
+      #e.g.: exclude files in below manner
+      #'${SRCPATH}/glink/src/lpai_transport.c',
+]
+
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/glink', EXCLUDE_FILES))
+
+# Enable WLAN TSF GPIO feature by default
+env['ENABLE_WLAN_TSF_GPIO'] = True
+
+# Conditionally exclude WLAN GPIO sources if feature is disabled
+if 'ENABLE_WLAN_TSF_GPIO' not in env:
+    EXCLUDE_FILES = EXCLUDE_FILES + [
+        '${SRCPATH}/offload_mgr/wlan_gpio/src/wlan_gpio.c',
+    ]
+else:
+    env.Append(CPPFLAGS=['-DENABLE_WLAN_TSF_GPIO'])
+
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/offload_mgr', EXCLUDE_FILES))
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/nanopb', EXCLUDE_FILES))
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/utils/stubs', EXCLUDE_FILES))
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/utils/heap_mgr', EXCLUDE_FILES))
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/utils/island_mgr',EXCLUDE_FILES))
+BT_OFFLOAD_SRC.extend(find_source_files(env, '${SRCPATH}/utils/common',EXCLUDE_FILES))
+
+# Offload lib will be placed in BT-Segment in TCM
+bt_offload_lib = env.AddLibrary(['BT_ADSP_USER'],'${BUILDPATH}/bt_offload',BT_OFFLOAD_SRC)
+if 'USES_MEMSEG' in env:
+    env.TagLibraryForMemorySegment(['BT_ADSP_USER'], 'bt', bt_offload_lib)
+
+
+# BT_PAL library for BT-PD
+BT_PAL_BOOTSTRAP_SRC = []
+BT_PAL_BOOTSTRAP_SRC.extend(find_source_files(env, '${SRCPATH}/main', EXCLUDE_FILES))
+
+if find_qcli(env): # Pass env to find_qcli as well if it uses env.subst internally
+    env.Append(CPPFLAGS=['-DENABLE_Q6_QCLI'])
+    BT_PAL_BOOTSTRAP_SRC.extend(find_source_files(env, '${SRCPATH}/qcli', EXCLUDE_FILES))
+
+bt_pal_lib = env.AddLibrary(['BT_ADSP_USER'],'${BUILDPATH}/bt_pal',BT_PAL_BOOTSTRAP_SRC)
+
+
+# TODO : whitelist ,
+if 'USES_RCINIT' in env:
+    RCINIT_IMG = ['BT_ADSP_USER']
+    env.AddRCInitFunc(
+    RCINIT_IMG,
+    {
+      'sequence_group'           : 'RCINIT_GROUP_7',
+      'init_name'                : 'bt',
+      'init_function'            : 'bt_pal_Init',
+    })
+
+
+#------------------------------------------------------------------------------
+# Scan subdirectories to find more /build folders
+#------------------------------------------------------------------------------
+env.LoadSoftwareUnits()

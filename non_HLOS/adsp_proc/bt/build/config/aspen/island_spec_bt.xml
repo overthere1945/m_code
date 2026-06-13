@@ -1,0 +1,7 @@
+
+  <physical_pool name="QURTOS_ISLAND_POOL" linelock="true"/>
+  <physical_pool name="TCM_PHYSPOOL"/>
+  <physical_pool name="BT_ISLAND_LPASS_TCM_POOL"/>
+  <physical_pool name="SSC_PRAM"/>
+  <dynamic_irqs num="2"/>
+  <!-- 1 UART Interrupt + 1 TimeSync GPIO Interrupt(GPIO78) -->

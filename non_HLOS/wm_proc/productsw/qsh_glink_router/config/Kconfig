@@ -1,0 +1,40 @@
+# ------------------------------------------------------------------------------
+#  Copyright (c) Qualcomm Technologies, Inc.
+#  All rights reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+# ------------------------------------------------------------------------------
+
+config PDTSW_QSH_GLINK_ROUTER_ENABLE
+    bool "Enable QSH Glink router"
+    default n
+    depends on NANOPB
+    help
+        This enables QSH Glink router functionality on M55 to talk to remote QSH over Glink.
+
+config PDTSW_QSH_GLINK_ROUTER_MAX_STATUS_CLIENTS
+    int "Number of status clients supported by QSH Glink router"
+    range 2 10
+    default 4
+    help
+        Maximum number of clients supported by QSH Glink router.
+
+config PDTSW_QSH_GLINK_ROUTER_MAX_CLIENTS
+    int "Number of clients supported by QSH Glink router"
+    range 2 10
+    default 3
+    help
+        Maximum number of clients supported by QSH Glink router.
+
+config PDTSW_QSH_GLINK_ROUTER_HEAP_SIZE
+    int "Heap size on m55 TCM"
+    range 1024 4096
+    default 1024
+    help
+        This will be used by the QSH router
+
+config PDTSW_QSH_GLINK_ROUTER_PROFILING
+    bool "Enable QSH Glink router profiling"
+    depends on PDTSW_QSH_GLINK_ROUTER_ENABLE
+    default n
+    help
+        Enable additional APIs to profile QSH Glink router API latencies

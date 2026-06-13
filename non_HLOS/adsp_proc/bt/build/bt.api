@@ -1,0 +1,74 @@
+#===============================================================================
+#
+# BT AU
+#
+# GENERAL DESCRIPTION
+#    BT API
+#
+#
+# Copyright (c) 2025 by Qualcomm Technologies, Inc. and/or its subsidiaries.
+# All rights reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+#-------------------------------------------------------------------------------
+
+Import('env')
+import json
+import os
+import logging
+
+# Configure logging (optional, for debugging if needed)
+format_str = '%(filename)s(line %(lineno)s)\t%(levelname)s -- %(message)s'
+logging.basicConfig(level=logging.ERROR, format=format_str)
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO) # Uncomment for debug logging
+
+env['BT_PAL_ROOT'] = '${BUILD_ROOT}/bt'
+
+bt_api = [] # Initialize as an empty list to be extended
+
+#--------------------------------------------------------------------------------
+# Utility python API's
+#--------------------------------------------------------------------------------
+
+# Function to recursively find all include paths (.h files' directories)
+# It now accepts the 'env_obj' to resolve SCons paths.
+def find_include_paths(env_obj, directory_scons_path):
+    inc_paths = []
+    # Resolve the SCons path string to an actual filesystem path
+    actual_directory = env_obj.subst(directory_scons_path)
+    # logger.info(f"Searching for include paths in: {actual_directory}") # Debug log
+
+    if not os.path.isdir(actual_directory):
+        logger.warning(f"Include directory not found: {actual_directory}. No include paths will be added from this path.")
+        return []
+
+    for root, _, files in os.walk(actual_directory):
+        # Add the current root directory as an include path
+        inc_paths.append(root)
+        # logger.info(f"Added include path: {root}") # Debug log
+    return inc_paths
+
+# Function to check if qcli directory exists, using env.subst
+def find_qcli(env_obj):
+    qcli_path = env_obj.subst('${BT_PAL_ROOT}/qcli')
+    # logger.info(f"Checking for qcli directory: {qcli_path}") # Debug log
+    return os.path.exists(qcli_path)
+
+#--------------------------------------------------------------------------------
+# Includes
+#--------------------------------------------------------------------------------
+
+# Find headers for various components, passing env_obj to the function
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/offload_mgr'))
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/glink'))
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/nanopb'))
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/utils/common'))
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/utils/heap_mgr'))
+bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/utils/island_mgr'))
+
+if find_qcli(env): # Pass env_obj to find_qcli
+    bt_api.extend(find_include_paths(env, '${BT_PAL_ROOT}/qcli'))
+
+env.PublishPublicApi('BT_INCLUDES', bt_api)
+env.LoadAPIUnits()

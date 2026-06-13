@@ -1,0 +1,70 @@
+/*=============================================================================
+  ssc_segment_whitelist.txt
+
+GENERAL DESCRIPTION
+ List of big image symbols safe to access from island mode.
+ Add only the symbols from libraries which are tagged to 'ssc' segment.
+ Add any new big image symbol at the appropriate place below.
+
+ Copyright (c) 2021 Qualcomm Technologies, Inc.
+ All Rights Reserved.
+ Confidential and Proprietary - Qualcomm Technologies, Inc.
+=============================================================================*/
+ak0991x_continue_client_config
+ak0991x_dae_if_deinit
+ak0991x_inst_deinit
+ak0991x_inst_init
+ak0991x_inst_set_client_config
+ak0991x_mag_deinit
+ak0991x_mag_init
+ak0991x_sensor_notify_event
+ak0991x_set_client_request
+lps22df_discover_hw
+lps22df_handle_selftest_request_removal
+lps22df_inst_deinit
+lps22df_inst_init
+lps22df_press_deinit
+lps22df_press_init
+lps22df_process_registry_events
+lps22df_process_suid_events
+lps22df_reset_device
+lps22df_sensor_temp_deinit
+lps22df_sensor_temp_init
+lps22df_set_client_test_config
+lps22df_update_siblings
+lsm6dsv_accel_deinit
+lsm6dsv_accel_init
+lsm6dsv_dae_if_check_support
+lsm6dsv_dae_if_deinit
+lsm6dsv_dae_if_support_known
+lsm6dsv_discover_hw
+lsm6dsv_gyro_deinit
+lsm6dsv_gyro_init
+lsm6dsv_handle_selftest_request_removal
+lsm6dsv_inst_deinit
+lsm6dsv_inst_factory_self_test
+lsm6dsv_inst_hw_self_test
+lsm6dsv_inst_init
+lsm6dsv_motion_detect_deinit
+lsm6dsv_motion_detect_init
+lsm6dsv_process_registry_events
+lsm6dsv_process_suid_events
+lsm6dsv_recover_device
+lsm6dsv_sensor_temp_deinit
+lsm6dsv_sensor_temp_init
+lsm6dsv_set_client_test_config
+lsm6dsv_update_siblings
+process_dae_error_event
+tmd2755_als_deinit
+tmd2755_als_init
+tmd2755_als_streaming_init
+tmd2755_default_settings
+tmd2755_inst_deinit
+tmd2755_inst_init
+tmd2755_inst_set_client_config
+tmd2755_prox_deinit
+tmd2755_prox_init
+tmd2755_prox_streaming_init
+tmd2755_sensor_notify_event
+tmd2755_set_client_request
+

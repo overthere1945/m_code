@@ -1,0 +1,51 @@
+# ------------------------------------------------------------------------------
+#  Copyright (c) Qualcomm Technologies, Inc.
+#  All rights reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+# ------------------------------------------------------------------------------
+
+config PDTSW_OFFLOAD_MGR_ENABLE
+    bool "Enable offload manager"
+    default n
+    help
+        This enables battery service functionality on M55 for the M55 clients to use in ambient mode.
+
+config PDTSW_OFFLOAD_MGR_RSB_ENABLE
+    bool "Enable RSB service offload support in offload manager"
+    depends on PDTSW_OFFLOAD_MGR_ENABLE && PDTSW_RSB_SERVICE_ENABLE
+    default n
+    help
+        Enable RSB service offload support in offload manager.
+
+config PDTSW_OFFLOAD_MGR_AUDIO_ENABLE
+    bool "Enable audio service offload support in offload manager"
+    depends on PDTSW_OFFLOAD_MGR_ENABLE && PDTSW_AUDIO_SERVICE_ENABLE
+    default n
+    help
+        Enable audio service offload support in offload manager.
+
+config PDTSW_OFFLOAD_MGR_HAPTICS_ENABLE
+    bool "Enable haptics service offload support in offload manager"
+    depends on PDTSW_OFFLOAD_MGR_ENABLE && PDTSW_HAPTICS_SERVICE_ENABLE
+    default n
+    help
+        Enable haptics service offload support in offload manager.
+
+config PDTSW_OFFLOAD_MGR_HEAP_SIZE
+    int "Offload manager heap size"
+    range 64 4096
+    default 64
+    help
+        This will be used by the audio service internally
+
+config QC_PDTSW_OFFLOAD_MGR_THREAD_PRIORITY
+    int "Offload Manager Workq Thread Priority"
+    default 21
+    help
+        Priority for the offload manager workq thread
+
+config QC_PDTSW_OFFLOAD_MGR_THREAD_STACK_SIZE
+    int "Offload Manager Workq Thread Stack Size"
+    default 2048
+    help
+        Stack size in bytes for the offload manager workq thread

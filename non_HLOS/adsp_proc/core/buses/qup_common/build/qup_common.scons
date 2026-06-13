@@ -1,0 +1,310 @@
+#===============================================================================
+#
+# QUPv3 common Libs
+#
+# GENERAL DESCRIPTION
+#    build script
+#
+# Copyright (c) Qualcomm Technologies, Inc.
+#         All Rights Reserved.
+# Qualcomm Technologies, Inc. Confidential and Proprietary.
+#
+#-------------------------------------------------------------------------------
+#                      EDIT HISTORY FOR FILE
+#
+#  This section contains comments describing changes made to the module.
+#  Notice that changes are listed in reverse chronological order.
+#
+# when       who     what, where, why
+# --------   ---     ---------------------------------------------------------
+# 03/11/26   KA      Added XR pd support for Bonsai
+# 01/19/26   MG      Added XR_PD Support
+# 08/21/25   MG      Moved MAX_I3C_INSTANCE to target specific
+# 06/25/25   KA      Audio pd support is added
+# 05/30/25   KA      Clients per pd and i3c instance increased for target specific
+# 03/17/25   SS      SWA for Kaanapali QUP AXI HW Bug
+# 03/04/25   AY      Added support for BT PD
+# 07/29/24   GKR     Added a FEATURE FLAG to specific to ADSP PROC code
+# 07/14/24   GKR     Added Dynamic Chipset folder check for stub decision making
+# 07/12/24   GKR     Stubbed out QUP COMMON for PW enablement
+# 06/26/24   GKR     FEATURE Flag for SDC PROC Support
+# 06/05/24   KSN     Added changes for pd agnostic fr
+# 10/31/23   KGA     Added changes to make MAX_IBI_INSTANCE and MAX_I3C_INSTANCE Macro to target specific.
+# 07/30/23   bng     Added Flag to support transfer optimization in island
+# 06/20/23   GKR     Added KPI Profiling SUPPORT based on FLAG
+# 10/01/23   GKR     Removed static definition of QUP_ISLANDS_SUPPORTED
+# 11/20/21   BN      Updated IBI Controller instances
+# 08/03/21   PCR     Disabled compilation for LeMans
+# 06/08/21   JC      Root PD whitelist update
+# 03/10/21   JC      Add SDC PDR Handler
+# 09/29/20   JC      Remove Driver from Charger PD
+# 08/08/20   JC      Add support for both top & ssc qup 
+# 06/17/20   JC      Add Driver to charger PD
+# 03/17/20   JC      Added support for I2C/SPI commmon driver
+# 04/09/19   ASH     Added Support for Saipan
+# 01/28/19   SKA     Scons changes to remove chipset selectors
+# 01/16/19   BNG     Added Systemdrivers API support
+# 08/23/17   UNR     Added qup_fw dependency
+# 07/10/17   RC      Added the PRAM support for the warlock ADSP.
+# 06/01/17   VV      Initial revision.
+#===============================================================================
+
+import os
+Import('env')
+env = env.Clone()
+
+#-------------------------------------------------------------------------------
+# Stub out qup common during PW enablement to avoid compilation error 
+# until porting to the respective chipset is done
+#-------------------------------------------------------------------------------
+
+
+if not os.path.isdir(env.subst("${BUILD_ROOT}/core/settings/buses/qup_common/hal/${CHIPSET}")):
+    env.PrintInfo('QUP COMMON Driver is Stubbed for ${CHIPSET}')
+    Return();
+
+#-------------------------------------------------------------------------------
+# Load sub scripts
+#-------------------------------------------------------------------------------
+env.LoadSoftwareUnits()
+
+
+SRCPATH = "${BUILD_ROOT}/core/buses/qup_common"
+
+env.VariantDir('${BUILDPATH}', SRCPATH, duplicate=0)
+
+IMAGES = ['CORE_SLPI_ROOT','CORE_SLPI_ADSP_ROOT','CORE_ADSP_ROOT']
+USER_SDC_IMAGES = ['CORE_SLPI_USER']
+
+USER_IMAGES = ['CORE_SLPI_USER','CHARGER_USER','CORE_OIS_ADSP_USER','CORE_QDSP6_BT_SW']
+
+if os.path.isdir(env.subst("${BUILD_ROOT}/core/dt_settings/soc/${CHIPSET}/adsp/audio_process/core/buses/qup_common")):
+	USER_IMAGES += ['CORE_AVS_ADSP_USER']
+
+if env['MSM_ID'] in ['balsam', 'bonsai']:
+    if os.path.isdir(env.subst("${BUILD_ROOT}/core/dt_settings/soc/${CHIPSET}/adsp/xr_process/core/buses/qup_common")):
+    	USER_IMAGES += ['CORE_QDSP6_BT_SW']
+	
+USER_SDC_SOURCES = []
+USER_SOURCES = []
+
+
+#-----------------------------------------------------------------------------
+# Manage Variables 
+#-----------------------------------------------------------------------------
+COMPILE_IN_ISLAND = False
+QUP_IN_USE = 'TOP_LEVEL'
+DISABLE_QUP_ISLAND = False
+SSC_QUP_AVAILABLE = False
+QUP_COMMMON_INIT_DEP = ['dalsys','clk_regime']
+
+if env.IsTargetEnable(['CORE_SLPI_ADSP_ROOT', 'CORE_SLPI_ROOT', 'CORE_SLPI_USER']) :
+    QUP_IN_USE='SSC'
+    QUP_COMMMON_INIT_DEP += ['pram_mgr', 'qup_fw_init']
+    env.Append(CCFLAGS = ' -DUSES_SSC_QUP')
+    SSC_QUP_AVAILABLE = True
+    env.Append(CPPDEFINES = ["MAX_SSC_QUP_CORES=MAX_SE_PER_SSC_QUP*NUM_SSC_QUP"])
+    if env['MSM_ID'] in ['balsam', 'bonsai']:
+        env.Append(CPPDEFINES = ["MAX_SSC_QUP_CLIENTS=30"])
+    else:
+        env.Append(CPPDEFINES = ["MAX_SSC_QUP_CLIENTS=20"])	
+else:
+    env.Append(CPPDEFINES = ["MAX_SSC_QUP_CORES=0"])
+    env.Append(CPPDEFINES = ["MAX_SSC_QUP_CLIENTS=0"])
+
+
+if 'USES_DISABLE_I2C_ISLAND' in env and 'USES_DISABLE_SPI_ISLAND' in env:
+    DISABLE_QUP_ISLAND = True
+
+if env.IsTargetEnable(['CORE_SLPI_ADSP_ROOT', 'CORE_SLPI_ROOT', 'CORE_AVS_ADSP_USER']) and DISABLE_QUP_ISLAND is not True:
+    COMPILE_IN_ISLAND=True
+    env.Append(CCFLAGS = ' -DQUP_ENABLE_ISLAND')
+    QUP_COMMMON_INIT_DEP += ['UIST']
+
+if env['MSM_ID'] in ['balsam',  'bonsai']:
+    if env.IsTargetEnable('CORE_QDSP6_BT_SW') and 'USES_DISABLE_I2C_ISLAND' not in env:
+        COMPILE_IN_ISLAND=True
+        env.Append(CCFLAGS = ' -DQUP_ENABLE_ISLAND')
+        QUP_COMMMON_INIT_DEP += ['UIST']
+	    	
+if env.IsTargetEnable(['CORE_SLPI_ADSP_ROOT']) :
+    env.Append(CCFLAGS = ' -DSSC_QUP_IN_ADSP')
+
+if 'USES_BUS_PRESIL_CONFIG' in env:
+    env.Append(CFLAGS = '-DBUS_PRESIL_CONFIG')   
+
+if 'USES_TRANSFER_OPTIMIZATION_IN_ISLAND' in env:
+   env.Append(CCFLAGS = ' -DENABLE_XFER_OPTIMIZE_IN_ISLAND')
+
+if 'ADSP_PROC' in env:
+   env.Append(CCFLAGS = ' -DQUP_IN_ADSP_PROC')
+
+if 'USES_SDC_LOADER' in env:
+    env.Append(CFLAGS = ' -DQUP_SDC_PROC_SUPPORT')
+
+#------------------------------------------------------------------------------
+# HW BUG Feature flags
+#------------------------------------------------------------------------------
+if env['MSM_ID'] in ['kaanapali']:
+      env.Append(CCFLAGS = ' -DQUP_AXI_HW_BUG')
+      QUP_COMMMON_INIT_DEP += ['smem']
+
+#-------------------------------------------------------------------------------
+#  Publish Private APIs
+#-------------------------------------------------------------------------------
+
+env.PublishPrivateApi('QUP_FW', [
+   "${BUILD_ROOT}/core/buses/qup_fw/inc",
+])
+
+#------------------------------------------------------------------------------
+# Debug logging options
+#------------------------------------------------------------------------------
+env.Append(CCFLAGS = ' -DQUP_ENABLE_ULOG')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_DATA')
+env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_ERROR')
+env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_INFO')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_REGS')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_PERF')
+# env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_VERBOSE')
+
+if 'USES_QUP_KPI_PROFILING' in env:
+    env.Append(CCFLAGS = ' -DQUP_LOG_ENABLE_PERF')
+    env.Append(CCFLAGS = ' -DQUP_KPI_PROFILING')
+
+#-------------------------------------------------------------------------------
+# Internal depends within CoreBSP
+#-------------------------------------------------------------------------------
+CBSP_APIS = [
+   'BUSES',
+   'BUSES_SPI',
+   'HAL',
+   'KERNEL',
+   'BOOT',
+   'DAL',
+   'DEBUGTOOLS',
+   'PRODUCTS',
+   'POWER',
+   'SERVICES',
+   'HWENGINES',
+   'QUP_COMMON_SETTINGS',
+   'QUP_COMMON_HAL',
+   'QUP_COMMON',
+   'FW_SETTINGS',
+   'SYSTEMDRIVERS',
+   'MPROC',
+]
+env.RequirePublicApi(CBSP_APIS)
+env.RequireRestrictedApi(CBSP_APIS)
+
+if 'USES_REMOVE_I3C' in env:
+    env.Append(CPPDEFINES = ["MAX_I3C_INSTANCE=0"])
+else:
+    env.Append(CPPDEFINES = ["MAX_I3C_INSTANCE=NUM_I3C_INSTANCES"])
+
+if 'USES_REMOVE_IBI' in env:
+    env.Append(CPPDEFINES = ["MAX_IBI_INSTANCE=0"])
+else:
+    env.Append(CPPDEFINES = ["MAX_IBI_INSTANCE=NUM_IBI_INSTANCES"])
+
+SOURCES = [
+   '${BUILDPATH}/src/qup_os.c',
+   '${BUILDPATH}/src/qup_drv.c',
+   '${BUILDPATH}/src/qup_gpi.c',
+   '${BUILDPATH}/src/qup_log.c',
+   '${BUILDPATH}/src/qup_plat_common.c',
+   '${BUILDPATH}/src/qup_mem_alloc.c',
+   '${BUILDPATH}/src/qup_config.c',
+   '${BUILDPATH}/src/qup_fifo.c',
+   '${BUILDPATH}/src/qup_fifo_island.c',
+   '${BUILDPATH}/src/TOP_LEVEL/qup_plat.c',
+   '${BUILDPATH}/src/'+QUP_IN_USE+'/qup_common.c',
+   ]
+
+ISLAND_SOURCES = [
+   '${BUILDPATH}/src/qup_os_island.c',
+   '${BUILDPATH}/src/qup_drv_island.c',
+   '${BUILDPATH}/src/qup_gpi_island.c',
+   '${BUILDPATH}/src/qup_log_island.c',
+   '${BUILDPATH}/src/qup_error.c',
+   '${BUILDPATH}/src/qup_common_island.c',
+   '${BUILDPATH}/src/qup_mem_island.c',
+   '${BUILDPATH}/src/qup_plat_island_common.c',
+   '${BUILDPATH}/src/qup_ssc_mem_island.c',
+   ]
+
+USER_SOURCES = [
+   '${BUILDPATH}/src/qup_user_pd.c',
+   ]
+
+if SSC_QUP_AVAILABLE is True:
+   SOURCES += [
+      '${BUILDPATH}/src/SSC/qup_plat.c',
+      ]
+      
+   ISLAND_SOURCES += [
+      '${BUILDPATH}/src/SSC/qup_plat_island.c',
+      ]
+   if 'USES_SDC_LOADER' in env:
+      SOURCES += [
+      '${BUILDPATH}/src/SSC/qup_sdc_handler_root.c',
+      ]
+      USER_SDC_SOURCES += [
+      '${BUILDPATH}/src/SSC/qup_sdc_handler_user.c',
+      ]
+      
+# Build for Root Process
+env.AddLibrary(IMAGES, '${BUILDPATH}/QUP_COMMON', SOURCES)
+uimg_libs = env.AddLibrary(IMAGES, '${BUILDPATH}/QUP_COMMON_ISLAND', ISLAND_SOURCES)
+uclnt_libs = env.AddLibrary(USER_IMAGES, '${BUILDPATH}/QUP_USER', USER_SOURCES)
+
+if 'USES_SDC_LOADER' in env:
+    env.AddLibrary(USER_SDC_IMAGES, '${BUILDPATH}/QUP_COMMON', USER_SDC_SOURCES)
+
+if COMPILE_IN_ISLAND is True:
+   QUP_COMMON_ROOT_ISLAND_WHITELIST = ['qup_ulog_log',
+                                       'ssc_qup_timer_init',
+                                       'ssc_qup_gpio_dump_stat',
+                                       'ssc_qup_timer_deinit',
+                                       'qurt_interrupt_clear']
+   if 'USES_MEMSEG' in env:
+      env.TagLibraryForMemorySegment(IMAGES, 'common', uimg_libs)
+      env.TagLibraryForMemorySegment(USER_IMAGES, 'common', uclnt_libs)
+      ex_modes = env.GetMemorySegmentExecModes()
+      env.AddSymbolToMemorySegmentWhitelist(IMAGES, ex_modes, uimg_libs, QUP_COMMON_ROOT_ISLAND_WHITELIST)
+      env.AddSymbolToMemorySegmentWhitelist(USER_IMAGES, ex_modes, uclnt_libs, 'qurt_thread_create')
+   elif 'USES_ISLAND' in env:
+      env.AddIslandLibrary(IMAGES, uimg_libs)
+      env.AddIslandLibrary(USER_IMAGES, uclnt_libs)
+      env.AddSymbolToIslandWhitelist(IMAGES, uimg_libs, QUP_COMMON_ROOT_ISLAND_WHITELIST)
+      env.AddSymbolToIslandWhitelist(USER_IMAGES, uclnt_libs, 'qurt_thread_create')
+
+if 'USES_RCINIT' in env:
+
+   env.AddRCInitFunc(
+      IMAGES,
+      {
+      'sequence_group'             : 'RCINIT_GROUP_0',
+      'init_name'                  : 'qup_common_init',
+      'init_function'              : 'qup_common_init',
+      'dependencies'               : QUP_COMMMON_INIT_DEP
+      })
+   if SSC_QUP_AVAILABLE is True:
+      if 'USES_SDC_LOADER' in env:
+         env.AddRCInitFunc(
+         IMAGES,
+         {
+         'sequence_group'             : 'RCINIT_GROUP_2',
+         'init_name'                  : 'qup_sdc_handler_root',
+         'init_function'              : 'qup_sdc_handler_init_root',
+         'dependencies'               : ['qup_common_init']
+         })
+
+         env.AddRCInitFunc(
+         USER_SDC_IMAGES,
+         {
+         'sequence_group'             : 'RCINIT_GROUP_2',
+         'init_name'                  : 'qup_sdc_handler_user',
+         'init_function'              : 'qup_sdc_handler_init_user',
+         'dependencies'               : []
+         })

@@ -1,0 +1,211 @@
+#===============================================================================
+#
+# @file ssc_drivers.scons
+#
+# GENERAL DESCRIPTION
+#    build script
+#
+# @copyright Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# All rights reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+#===============================================================================
+Import('env')
+import logging, os, inspect
+format_str = '%(filename)s(line %(lineno)s)\t%(levelname)s -- %(message)s'
+logging.basicConfig(level=logging.ERROR, format=format_str)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  #logs info and higher
+#logger.setLevel(logging.DEBUG) #logs everything
+
+ME = inspect.getfile(inspect.currentframe())
+MY_ROOT = os.path.dirname(os.path.dirname(ME))
+logger.debug("ME = %s" % ME)
+logger.debug("MY_ROOT = %s" % MY_ROOT)
+
+#-------------------------------------------------------------------------------
+# Check if SSC has to be built
+#-------------------------------------------------------------------------------
+ssc_build_tags = [
+   # SSC as the USER PD on SLPI processor
+   'SSC_SLPI_USER',
+
+   #SSC as part of root PD on MDSP processor
+   'MODEM_MODEM',
+
+   #SSC as part of root PD on MDSP processor
+   'MODEM_SENSORONLY',
+
+   # SSC as the USER PD on ADSP processor
+   'SSC_ADSP_USER',
+
+   # SSC simulation
+   'SENSINGHUB_SIM',
+
+   # SSC Shared libs
+   'SSC_SHARED_LIBS',
+
+   # SEE as part of OIS PD on ADSP processor
+   'OIS_ADSP_USER',
+
+   # Add new targets here
+   # Note:
+   #   Compose Build Tag as follows: [Component]_[Image]_[PD Type]
+   #   [Component] - Name of Component Folder. Example: CORE, SSC
+   #   [Image] - Type of processor. Example: ADSP, SLPI, MPSS
+   #   [PD Type] - ROOT or USER
+   #   see http://qwiki.qualcomm.com/qct-osteam/CoreBSP/SLPI_Development_Information#How_Build_Tags_are_Composed
+ ]
+
+# Store the build tags
+env.Replace(SSC_BUILD_TAGS=ssc_build_tags)
+
+#-------------------------------------------------------------------------------
+# Get dependent API header files
+#-------------------------------------------------------------------------------
+platform_public_apis = [
+                     'RTLD',
+                    ]
+env.RequirePublicApi(platform_public_apis, area='platform')
+
+# Delete ssc_drivers folder for modem flavors which use no sensors.
+# USES_NO_SENSORS is a modem specific build tag.
+if 'USES_NO_SENSORS' in env:
+  env.PrintInfo("No sensors")
+  Return()
+
+if os.path.isdir(env.subst('${BUILD_ROOT}') + '/sensinghub/platform'):
+  sensinghub_platform_ws_path = 'sensinghub/platform'
+else:
+  sensinghub_platform_ws_path = 'qsh_platform'
+ssc_root_dir = env.subst('${BUILD_ROOT}') + os.sep + sensinghub_platform_ws_path
+env.Replace(SSC_ROOT=ssc_root_dir)
+
+env.Tool('ssc_utils', toolpath = ['${SSC_ROOT}/build'])
+chipset_dir = env.GetChipsetDir()
+
+if not env.PathExists(chipset_dir):
+  sdc_root_dir = os.path.join(os.path.dirname(MY_ROOT), 'sdc_sensors')
+  env.Replace(SDC_ROOT=sdc_root_dir)
+  if env.PathExists('${SDC_ROOT}/chipset/${CHIPSET}'): 
+    env.Replace(SSC_ROOT=sdc_root_dir)
+  else:
+    print("missing chipset folder: ", chipset_dir)
+    Return()
+
+sensor_vrnt = ARGUMENTS.get('SENSOR_VARIANT', 'por')
+if sensor_vrnt != 'por' and not env.PathExists(os.path.join(chipset_dir, 'npor')):
+  env.PrintError("missing npor folder: ", os.path.join(chipset_dir, 'npor') )
+  Return()
+
+if env.IsKeyEnable(ssc_build_tags) is True or env.IsKeyEnable(['SSC_SHARED_LIBS']) is True:
+  env.Append(CCFLAGS = ' -Os ') # Change to -O0 to support GDB debugging on simulation
+  env.Append(CFLAGS = ' -std=c17 -Werror -Wall -Wextra')
+  env.Append(CFLAGS = '-Wno-sign-compare')
+
+  env.Append(CPPDEFINES = ['SSC_TARGET_HEXAGON'])
+  env.Append(CFLAGS = '-mllvm -disable-shrink-wrap-common-args')
+  
+  #Set up SEE builder
+  logger.debug("loading ssc_static_lib_builder...")
+  env.Tool('ssc_static_lib_builder', toolpath = ['${SSC_ROOT}/build'])
+
+  logger.debug("loading por.py from %s" % env.subst(chipset_dir))  
+  sensor_vrnt = ARGUMENTS.get('SENSOR_VARIANT', 'por')
+  if sensor_vrnt != 'por':
+     env.LoadToolScript(sensor_vrnt, toolpath = [os.path.join(chipset_dir, 'npor')])
+  else:
+     env.LoadToolScript('por', toolpath = [chipset_dir])
+
+  if 'USES_SFE' in env:
+    logger.debug("loading sfe_vd_builder...")
+    env.LoadToolScript('sfe_vd_builder', toolpath = ['${SSC_ROOT}/build'])
+
+  #-----------------------------------------------------------------------
+  # Enabling SEE on MPSS based on flag.
+  # SNS_ENABLE_SEE_ON_MPSS is enabled for MPSS builds from por.py. 
+  # Usage: For MPSS builds where SEE is por'ed for all MPSS variants
+  # 
+  # USES_SEE_ON_MPSS_FLAVOR is enabled from target_variation.xml
+  # Usage: For MPSS builds where SEE is por'ed for specific MPSS variants
+  #
+  # Note: Both the flags should not be enabled together
+  #-----------------------------------------------------------------------
+
+  if env.IsKeyEnable('MODEM_MODEM'):
+     if (('SNS_ENABLE_SEE_ON_MPSS' in env) or ('USES_SEE_ON_MPSS_FLAVOR' in env)):
+       env.PrintInfo("SSC compilation on MPSS")
+     else:
+       env.PrintInfo("Skipping SSC compilation on MPSS")
+       Return()
+
+
+  logger.debug(env['USES_FLAGS'])
+  logger.debug(env['CPPDEFINES'])
+
+  env.RequirePublicApi(['SNS_INCLUDES'], area=env['SENSINGHUB_PLATFORM'])
+  env.RequirePublicApi(['SNS_API_INCLUDES'], area=env['SENSINGHUB_API'])
+  env.RequirePublicApi(['QDSP6'], area='qdsp6')
+
+  if 'SSC_TARGET_SDC_AVAILABLE' in env['CPPDEFINES']:
+    env.Append(CPPDEFINES = ['SNS_ENABLE_DAE'])
+
+  if 'SNS_ENABLE_S4S' in env:
+    env.Append(CPPDEFINES = ['SNS_ENABLE_S4S'])
+
+  #-------------------------------------------------------------------------------
+  # Scan subdirectories to find more /build folders
+  #-------------------------------------------------------------------------------
+  env.LoadSoftwareUnits()
+
+  #-------------------------------------------------------------------------------
+  # Generates
+  #-------------------------------------------------------------------------------
+  if 'USES_STATIC_SENSORS_LIST_GEN' in env and not env.GetOption('cleanpack'):
+    env.GenerateStaticDriverList(env['SSC_BUILD_TAGS'])
+
+  if 'USES_SFE_SENSORS_LIST_GEN' in env and not env.GetOption('cleanpack'):
+    env.GenerateSfeVdmDataList()
+
+
+#===============================================================================
+# Build sdc sensor drivers
+#===============================================================================
+sdc_sensors_build_tags = [
+   # sdc_sensors on SDC processor
+   'CORE_SLPI_SDC',
+   'SSC_SLPI_SDC',
+ ]
+sdc_sensors_root_dir = os.path.join(env.subst('${BUILD_ROOT}'), 'sdc_sensors')
+env.Replace(SDC_SENSORS_ROOT=sdc_sensors_root_dir)
+
+if env.IsKeyEnable(sdc_sensors_build_tags) is True:
+  env.Append(CFLAGS = '-O1')
+  env.Append(CFLAGS = '-std=c99')
+
+  # Store the build tags
+  env.Replace(LIB_TARGETS=sdc_sensors_build_tags)
+
+  logger.debug("loading sdc_dd_builder...")
+  env.Tool('sdc_dd_builder', toolpath = ['${SDC_SENSORS_ROOT}/build'])
+
+  logger.debug("loading por.py from %s" % chipset_dir)
+  env.LoadToolScript('por', toolpath = [chipset_dir])
+  sensor_vrnt = ARGUMENTS.get('SENSOR_VARIANT', 'por')
+  if sensor_vrnt != 'por':
+     env.LoadToolScript(sensor_vrnt, toolpath = [os.path.join(chipset_dir, 'npor')])
+  logger.debug(env['USES_FLAGS'])
+  logger.debug(env['CPPDEFINES'])
+
+  env.RequirePublicApi(['SDC_SENSORS_INCLUDES'], area='sdc_sensors')
+
+  #-------------------------------------------------------------------------------
+  # Scan subdirectories to find more /build folders
+  #-------------------------------------------------------------------------------
+  env.LoadSoftwareUnits()
+
+  #-------------------------------------------------------------------------------
+  # Generates
+  #-------------------------------------------------------------------------------
+  if 'USES_SDC_SENSORS_LIST_GEN' in env and not env.GetOption('cleanpack'):
+    env.GenerateVTableList()
