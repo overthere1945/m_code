@@ -49,7 +49,51 @@ unsigned int myddr_base_addr = 0;
 
 #define LGE_TCM_START_ADDRESS  0x20488000
 #define LGE_TCM_SIZE  0x20000
-unsigned int mytcm_base_addr;
+/* change-20260615-hyungchul :
+ * TCM mapping ?? ??? mapping ?? ??? ???? ????.
+ * ?? ??? mytcm_base_addr? 1/2/3 ?? ?? ???? ?? mapping ?? ? ??? ??? TCM ???? ??? ? ??? ??? ????. */
+unsigned int mytcm_base_addr = 0;
+static bool mytcm_ready = false;
+
+/* change-20260615-hyungchul :
+ * TCM ?? ???? ??? control ??(0x1FF00)? ADSP writer? WM reader? ?? ??? image ???? ????.
+ * ADSP? JPG? ?? ???, WM? JPG? ?? ??? ???? ?? TCM buffer? ????? ??? ?? ?? ????. */
+#define LGE_TCM_CTRL_OFFSET              0x1FF00
+#define LGE_TCM_IMAGE_CTRL_MAGIC         0x4C474549U
+#define LGE_TCM_IMAGE_STATE_IDLE         0U
+#define LGE_TCM_IMAGE_STATE_WRITING      1U
+#define LGE_TCM_IMAGE_STATE_READY        2U
+
+typedef struct lge_tcm_image_ctrl
+{
+  uint32_t magic;
+  uint32_t write_state;
+  uint32_t jpg_len;
+  uint8_t  reader_busy;
+  uint8_t  reserved[3];
+  /* change-20260615-hyungchul :
+   * ?? BLE control byte? TCM offset 0x1FF10? ?? ??? ? ??? 4 byte? ????, image_seq? ? ? offset 0x1FF14? ????.
+   * image_seq ??? reader_busy? BLE control offset? ??? ADSP/WM ?? ?? ??? ?? ? ?? ??? ????. */
+  uint8_t  ble_control_reserved;
+  uint8_t  reserved2[3];
+  /* change-20260615-hyungchul :
+   * ADSP? ??? JPG? publish? ??? ????? frame sequence? control block? ????.
+   * WM? JPG size? ??? ? frame sequence? ?? ???? ???? ?? ?? ????. */
+  uint32_t image_seq;
+} lge_tcm_image_ctrl_t;
+
+static volatile lge_tcm_image_ctrl_t *ct7117x_get_tcm_image_ctrl(void)
+{
+  /* change-20260615-hyungchul :
+   * TCM mapping? ??? ??? mytcm_ready? true? ? ???? control block ??? ????.
+   * mytcm_base_addr? 1/2/3 ?? ????? 0 ??? TCM ??? ??? ??? ???? ???? ?? ???? ?? ????. */
+  if ((mytcm_ready == false) || (mytcm_base_addr == 0U))
+  {
+    return NULL;
+  }
+
+  return (volatile lge_tcm_image_ctrl_t *)((uint8_t *)mytcm_base_addr + LGE_TCM_CTRL_OFFSET);
+}
 
 /*==============================================================================
   Function Definitions
@@ -252,6 +296,11 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
     uint32_t xfer_bytes = 0;
     uint32_t image_data_len = 0;
     uint32_t total_read_bytes = 0;
+    /* change-20260615-hyungchul :
+     * TCM image control ??? ??? WM? ?? JPG? BLE? ?? ??? ?? interrupt? TCM overwrite? ????.
+     * ?? TCM image buffer? ADSP? WM? ??? ????? JPG ???? ???? ??? race condition? ?? ?? ????. */
+    volatile lge_tcm_image_ctrl_t *tcm_img_ctrl = NULL;
+    bool tcm_update_allowed = false;
 
     sns_island_exit_internal();
 
@@ -263,10 +312,14 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
           uint8_t* current_dest;
 
           current_dest = base_ptr + 0x10;
-          if(*current_dest != 0x0)
+          /*change-20260617-hyungchul
+           * ??? ?? : ?? ??? DDR control ?? 0x00?? TCM 0x1FF10?? ???? ??, ??? TCM? ?? ?? 0x01 enable ?? ?? ??? ? ???.
+           * ??? ??? ?? : 0x00 OFF ?? ??? BLE send control ??? ??, TCM mapping? ??? ???? DDR control ?? 0x00 ?? ??? TCM? ????. */
+          if(mytcm_ready == true)
           {
               uint8_t* blesend_ptr = (uint8_t*)mytcm_base_addr + 0x1ff00 + 0x10;
               *blesend_ptr = *current_dest;
+              qurt_mem_barrier();
           }
 
           // on/off
@@ -326,6 +379,26 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
                       sns_sensor_util_remove_sensor_instance_stream(instance, &state->temperature_timer_data_stream);
     }
 
+    /* change-20260615-hyungchul :
+     * SPI read? ???? ?? TCM control block? WRITING?? ????, WM reader_busy? ?? ??? TCM ??? ????.
+     * WM? BLE ?? ?? TCM image? ADSP interrupt handler? ???? ??? ???? ?? ????. */
+    tcm_img_ctrl = ct7117x_get_tcm_image_ctrl();
+    if (tcm_img_ctrl != NULL)
+    {
+      tcm_img_ctrl->magic = LGE_TCM_IMAGE_CTRL_MAGIC;
+      if (tcm_img_ctrl->reader_busy == 0U)
+      {
+        tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_WRITING;
+        tcm_img_ctrl->jpg_len = 0U;
+        qurt_mem_barrier();
+        tcm_update_allowed = true;
+      }
+      else
+      {
+        SNS_INST_PRINTF(HIGH, instance, "TCM image update skipped, WM reader busy");
+      }
+    }
+
     // 0. During audio recording, can caputre gs25/dark images
     for(volatile int i = 0; i < 50000; i++);
     // 1. Read header (11 bytes)
@@ -340,11 +413,19 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
     {
         SNS_INST_PRINTF(ERROR, instance, "Failed to read header, read %u bytes", xfer_bytes);
         // [Modified] Exit without data transfer if header read fails (effectively ignores the second interrupt)
+        /* change-20260615-hyungchul :
+         * header read ?? ? WRITING ??? ?? TCM control block? IDLE? ????.
+         * WM? write_state=WRITING? ?? ?? ?? JPG ??? ?? ???? ??? ?? ?? ????. */
+        if (tcm_update_allowed == true)
+        {
+          tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_IDLE;
+          qurt_mem_barrier();
+        }
         return;
     }
 
     // 2. Parse data length from the header (little-endian)
-    // Corresponds to sensor¡¯s spim_ptl_hdr_buf[3]~[6]
+    // Corresponds to sensor's spim_ptl_hdr_buf[3]~[6]
 #ifdef	LATENCY_MEASURE
     t_p_s = sns_get_system_time();
 #endif	//LATENCY_MEASURE
@@ -356,6 +437,14 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
     if (image_data_len == 0 || image_data_len > (120 * 1024 - sizeof(header))) // Validation check
     {
         SNS_INST_PRINTF(HIGH, instance, "Data length is 0 (Sensor startup/idle?), ignoring.");
+        /* change-20260615-hyungchul :
+         * ???? ?? JPG ??? ??? ?? WRITING ??? IDLE? ????.
+         * ADSP? ?? image? publish?? ???? WM? READY? ???? ??? ??? ???? ?? ????. */
+        if (tcm_update_allowed == true)
+        {
+          tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_IDLE;
+          qurt_mem_barrier();
+        }
         return;
     }
 
@@ -364,10 +453,31 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
 #ifdef	LATENCY_MEASURE
     t_r_s = sns_get_system_time();
 #endif	//LATENCY_MEASURE
-    for(uint32_t read_len = 0; read_len < image_data_len; read_len += xfer_bytes)
+    /* change-20260615-hyungchul :
+     * SPI JPG body read loop? xfer_bytes ??? for-loop?? while-loop? ????, ? chunk?? xfer_bytes? 0?? ?????.
+     * com_read()? 0 byte? ???? read_len? ???? ?? ?? loop? ? ? ?? ??? ????. */
+    uint32_t read_len = 0;
+    while(read_len < image_data_len)
     {
       uint32_t chunk = (image_data_len - read_len) > sizeof(buffer) ? sizeof(buffer) : (image_data_len - read_len);
+      xfer_bytes = 0;
       state->com_read(state->scp_service, state->com_port_info.port_handle, 0x00, buffer, chunk, &xfer_bytes);
+
+      /* change-20260615-hyungchul :
+       * SPI read ?? xfer_bytes? 0??? ??? chunk?? ?? ?? capture? ???? TCM ??? IDLE? ????.
+       * SPI ?? ? ?? loop? ??? ??? memcpy? ?? memory corruption? ???? ?? ????. */
+      if ((xfer_bytes == 0U) || (xfer_bytes > chunk))
+      {
+        SNS_INST_PRINTF(ERROR, instance, "Invalid SPI read xfer_bytes=%u chunk=%u read_len=%u expected=%u",
+                        xfer_bytes, chunk, read_len, image_data_len);
+        if (tcm_update_allowed == true)
+        {
+          tcm_img_ctrl->jpg_len = 0U;
+          tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_IDLE;
+          qurt_mem_barrier();
+        }
+        return;
+      }
 
       // if (read_len == 0 && xfer_bytes >= 5)
       // {
@@ -378,26 +488,71 @@ void ct7117x_handle_interrupt_event(sns_sensor_instance *const instance, sns_tim
       if (myddr_base_addr != 0)
       {
           void* current_dest = (void*)myddr_base_addr;
-          void* current_tcmdest = (void*)mytcm_base_addr;
           // For the first chunk, write the first 11 bytes of the header to the destination.
           if(read_len == 0)
           {
               sns_memscpy(current_dest, 11, header, 11);
-              sns_memscpy(current_tcmdest, 11, header, 11);
           }
 
           // Write the image data after the header.
           memcpy((uint8_t*)current_dest + 11 + read_len, buffer, xfer_bytes);
+      }
+
+      /* change-20260615-hyungchul :
+       * reader_busy? ?? ?? ADSP? WRITING ??? ?? ???? TCM image ??? header? JPG chunk? ????.
+       * WM? ?? image? BLE? ?? ??? DDR?? ???? TCM? ???? ?? ? image corruption? ?? ?? ????. */
+      if (tcm_update_allowed == true)
+      {
+          void* current_tcmdest = (void*)mytcm_base_addr;
+          if(read_len == 0)
+          {
+              sns_memscpy(current_tcmdest, 11, header, 11);
+          }
           memcpy((uint8_t*)current_tcmdest + 11 + read_len, buffer, xfer_bytes);
       }
       total_read_bytes += xfer_bytes;
+      read_len += xfer_bytes;
     }
 
-    // LPAI BLE Data End
-    uint8_t* jpgend_ptr = (uint8_t*)mytcm_base_addr + 11 + total_read_bytes;
-    *jpgend_ptr = 0x0F;
+    /* change-20260615-hyungchul :
+     * SPI loop? ?? ??? ? ?? ?? read byte? header? image_data_len? ??? ?? ????.
+     * ?? read ??? ??? xfer_bytes? ???? JPG? READY ??? publish?? ?? ?? ?? ????. */
+    if (total_read_bytes != image_data_len)
+    {
+      SNS_INST_PRINTF(ERROR, instance, "Incomplete JPG read total=%u expected=%u", total_read_bytes, image_data_len);
+      if (tcm_update_allowed == true)
+      {
+        tcm_img_ctrl->jpg_len = 0U;
+        tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_IDLE;
+        qurt_mem_barrier();
+      }
+      return;
+    }
 
-    qurt_mem_barrier();
+    /* change-20260615-hyungchul :
+     * TCM image body? ?? byte 0x0F? ?? ? ? jpg_len? READY ??? publish??.
+     * WM reader? write_state=READY? ??? ??? ??? JPG? ??? ?? ?? ????. */
+    if (tcm_update_allowed == true)
+    {
+      uint8_t* jpgend_ptr = (uint8_t*)mytcm_base_addr + 11 + total_read_bytes;
+      *jpgend_ptr = 0x0F;
+      tcm_img_ctrl->jpg_len = total_read_bytes;
+      /* change-20260615-hyungchul :
+       * JPG body? 0x0F ?? byte write? ?? ? image_seq? ???? ? frame publish? ????.
+       * WM? JPG size? ?? ?? frame? ? ???? ??? ? ??? ?? ?? ????. */
+      tcm_img_ctrl->image_seq++;
+      if (tcm_img_ctrl->image_seq == 0U)
+      {
+        tcm_img_ctrl->image_seq = 1U;
+      }
+      qurt_mem_barrier();
+      tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_READY;
+      qurt_mem_barrier();
+    }
+    else
+    {
+      qurt_mem_barrier();
+    }
 
     SNS_INST_PRINTF(HIGH, instance, "Total bytes: %u (tcm:%x)", total_read_bytes, mytcm_base_addr);
   }
@@ -647,16 +802,19 @@ sns_rc ct7117x_temp_inst_init(sns_sensor_instance * const this,
     }
   }
 
-  if (mytcm_base_addr == 0 )
+  /* change-20260615-hyungchul :
+   * TCM mapping ???? mytcm_ready? false? ?? ????, ?? virtual address? ?? ???? mytcm_ready? true? ????.
+   * ?? ??? mytcm_base_addr? 1/2/3 ?? ???? ?? mapping ?? ? TCM write? ?? ??? ??? ? ??? ??? ????. */
+  if (mytcm_ready == false)
   {
     qurt_mem_pool_t hwio_pool = 0;
     qurt_mem_region_t shared_mem_region = 0;
     qurt_mem_region_attr_t hwio_attr;
+    unsigned int tcm_virt_addr = 0;
 
-    mytcm_base_addr = 1;
+    mytcm_base_addr = 0;
     if(QURT_EOK == qurt_mem_pool_attach("LGE_TCM_POOL", &hwio_pool))
     {
-	mytcm_base_addr = 2;
         qurt_mem_region_attr_init(&hwio_attr);
         qurt_mem_region_attr_set_cache_mode(&hwio_attr, QURT_MEM_CACHE_NONE);
         qurt_mem_region_attr_set_mapping(&hwio_attr, QURT_MEM_MAPPING_PHYS_CONTIGUOUS);
@@ -664,14 +822,45 @@ sns_rc ct7117x_temp_inst_init(sns_sensor_instance * const this,
 
         if (QURT_EOK == qurt_mem_region_create(&shared_mem_region, LGE_TCM_SIZE, hwio_pool, &hwio_attr))
         {
-	   mytcm_base_addr = 3;
            if (QURT_EOK == qurt_mem_region_attr_get(shared_mem_region, &hwio_attr))
            {
-             qurt_mem_region_attr_get_virtaddr(&hwio_attr, &mytcm_base_addr);
+             qurt_mem_region_attr_get_virtaddr(&hwio_attr, &tcm_virt_addr);
+             if (tcm_virt_addr != 0U)
+             {
+               mytcm_base_addr = tcm_virt_addr;
+               mytcm_ready = true;
+               SNS_INST_PRINTF(HIGH, this, "LGE TCM region created successfully. Virtual address: 0x%x", mytcm_base_addr);
+             }
            }
         }
     }
+
+    if (mytcm_ready == false)
+    {
+      mytcm_base_addr = 0;
+      SNS_INST_PRINTF(ERROR, this, "Failed to create LGE TCM region.");
+    }
+    else
+    {
+      /* change-20260615-hyungchul :
+       * TCM mapping ?? ?? image control block? ?? ??? ????.
+       * ?? boot/session? reader_busy? write_state ?? ?? ADSP/WM ???? ???? ??? ?? ???? ?? ????. */
+      volatile lge_tcm_image_ctrl_t *tcm_img_ctrl = ct7117x_get_tcm_image_ctrl();
+      if (tcm_img_ctrl != NULL)
+      {
+        tcm_img_ctrl->magic = LGE_TCM_IMAGE_CTRL_MAGIC;
+        tcm_img_ctrl->write_state = LGE_TCM_IMAGE_STATE_IDLE;
+        tcm_img_ctrl->jpg_len = 0U;
+        /* change-20260615-hyungchul :
+         * TCM mapping ?? ?? image_seq? 0?? ?????.
+         * WM? ?? boot/session?? ?? sequence ?? ? frame?? ???? ??? ?? ?? ????. */
+        tcm_img_ctrl->image_seq = 0U;
+        tcm_img_ctrl->reader_busy = 0U;
+        qurt_mem_barrier();
+      }
+    }
   }
+
 
   uint64_t buffer[10];
   pb_ostream_t stream = pb_ostream_from_buffer((pb_byte_t *)buffer, sizeof(buffer));
